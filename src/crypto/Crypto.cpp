@@ -19,6 +19,7 @@
 
 #include <QMutex>
 
+#include <botan/block_cipher.h>
 #include <gcrypt.h>
 
 #include "config-keepassx.h"
@@ -166,34 +167,31 @@ bool Crypto::testAes256Cbc()
     plainText.append(QByteArray::fromHex("ae2d8a571e03ac9c9eb76fac45af8e51"));
     QByteArray cipherText = QByteArray::fromHex("f58c4c04d6e5f1ba779eabfb5f7bfbd6");
     cipherText.append(QByteArray::fromHex("9cfc4e967edb808d679f777bc6702c7d"));
-    bool ok;
 
-    SymmetricCipher aes256Encrypt(SymmetricCipher::Aes256, SymmetricCipher::Cbc, SymmetricCipher::Encrypt);
-    if (!aes256Encrypt.init(key, iv)) {
-        raiseError(aes256Encrypt.errorString());
+    QByteArray data = plainText;
+    SymmetricCipher aes256;
+    if (!aes256.init(SymmetricCipher::Aes256_CBC, SymmetricCipher::Encrypt, key, iv)) {
+        raiseError(aes256.errorString());
         return false;
     }
-    QByteArray encryptedText = aes256Encrypt.process(plainText, &ok);
-    if (!ok) {
-        raiseError(aes256Encrypt.errorString());
+    if (!aes256.process(data)) {
+        raiseError(aes256.errorString());
         return false;
     }
-    if (encryptedText != cipherText) {
+    if (data != cipherText) {
         raiseError("AES-256 CBC encryption mismatch.");
         return false;
     }
 
-    SymmetricCipher aes256Decrypt(SymmetricCipher::Aes256, SymmetricCipher::Cbc, SymmetricCipher::Decrypt);
-    if (!aes256Decrypt.init(key, iv)) {
-        raiseError(aes256Decrypt.errorString());
+    if (!aes256.init(SymmetricCipher::Aes256_CBC, SymmetricCipher::Decrypt, key, iv)) {
+        raiseError(aes256.errorString());
         return false;
     }
-    QByteArray decryptedText = aes256Decrypt.process(cipherText, &ok);
-    if (!ok) {
-        raiseError(aes256Decrypt.errorString());
+    if (!aes256.process(data)) {
+        raiseError(aes256.errorString());
         return false;
     }
-    if (decryptedText != plainText) {
+    if (data != plainText) {
         raiseError("AES-256 CBC decryption mismatch.");
         return false;
     }
@@ -209,33 +207,23 @@ bool Crypto::testAes256Ecb()
     plainText.append(QByteArray::fromHex("00112233445566778899AABBCCDDEEFF"));
     QByteArray cipherText = QByteArray::fromHex("8EA2B7CA516745BFEAFC49904B496089");
     cipherText.append(QByteArray::fromHex("8EA2B7CA516745BFEAFC49904B496089"));
-    bool ok;
 
-    SymmetricCipher aes256Encrypt(SymmetricCipher::Aes256, SymmetricCipher::Ecb, SymmetricCipher::Encrypt);
-    if (!aes256Encrypt.init(key, iv)) {
-        raiseError(aes256Encrypt.errorString());
-        return false;
-    }
-    QByteArray encryptedText = aes256Encrypt.process(plainText, &ok);
-    if (!ok) {
-        raiseError(aes256Encrypt.errorString());
-        return false;
-    }
+    std::unique_ptr<Botan::BlockCipher> cipher(Botan::BlockCipher::create("AES-256"));
+    cipher->set_key(reinterpret_cast<uint8_t*>(key.data()), key.size());
+
+    Botan::SecureVector<uint8_t> out(plainText.size());
+    cipher->encrypt_n(
+        reinterpret_cast<const uint8_t*>(plainText.data()), out.data(), plainText.size() / cipher->block_size());
+
+    QByteArray encryptedText(reinterpret_cast<char*>(out.data()), out.size());
     if (encryptedText != cipherText) {
         raiseError("AES-256 ECB encryption mismatch.");
         return false;
     }
 
-    SymmetricCipher aes256Decrypt(SymmetricCipher::Aes256, SymmetricCipher::Ecb, SymmetricCipher::Decrypt);
-    if (!aes256Decrypt.init(key, iv)) {
-        raiseError(aes256Decrypt.errorString());
-        return false;
-    }
-    QByteArray decryptedText = aes256Decrypt.process(cipherText, &ok);
-    if (!ok) {
-        raiseError(aes256Decrypt.errorString());
-        return false;
-    }
+    cipher->decrypt_n(out.data(), out.data(), out.size() / cipher->block_size());
+
+    QByteArray decryptedText(reinterpret_cast<char*>(out.data()), out.size());
     if (decryptedText != plainText) {
         raiseError("AES-256 ECB decryption mismatch.");
         return false;
@@ -252,34 +240,31 @@ bool Crypto::testTwofish()
     plainText.append(QByteArray::fromHex("ae2d8a571e03ac9c9eb76fac45af8e51"));
     QByteArray cipherText = QByteArray::fromHex("e0227c3cc80f3cb1b2ed847cc6f57d3c");
     cipherText.append(QByteArray::fromHex("657b1e7960b30fb7c8d62e72ae37c3a0"));
-    bool ok;
 
-    SymmetricCipher twofishEncrypt(SymmetricCipher::Twofish, SymmetricCipher::Cbc, SymmetricCipher::Encrypt);
-    if (!twofishEncrypt.init(key, iv)) {
-        raiseError(twofishEncrypt.errorString());
+    QByteArray data = plainText;
+    SymmetricCipher twofish;
+    if (!twofish.init(SymmetricCipher::Twofish_CBC, SymmetricCipher::Encrypt, key, iv)) {
+        raiseError(twofish.errorString());
         return false;
     }
-    QByteArray encryptedText = twofishEncrypt.process(plainText, &ok);
-    if (!ok) {
-        raiseError(twofishEncrypt.errorString());
+    if (!twofish.process(data)) {
+        raiseError(twofish.errorString());
         return false;
     }
-    if (encryptedText != cipherText) {
+    if (data != cipherText) {
         raiseError("Twofish encryption mismatch.");
         return false;
     }
 
-    SymmetricCipher twofishDecrypt(SymmetricCipher::Twofish, SymmetricCipher::Cbc, SymmetricCipher::Decrypt);
-    if (!twofishDecrypt.init(key, iv)) {
-        raiseError(twofishEncrypt.errorString());
+    if (!twofish.init(SymmetricCipher::Twofish_CBC, SymmetricCipher::Decrypt, key, iv)) {
+        raiseError(twofish.errorString());
         return false;
     }
-    QByteArray decryptedText = twofishDecrypt.process(cipherText, &ok);
-    if (!ok) {
-        raiseError(twofishDecrypt.errorString());
+    if (!twofish.process(data)) {
+        raiseError(twofish.errorString());
         return false;
     }
-    if (decryptedText != plainText) {
+    if (data != plainText) {
         raiseError("Twofish encryption mismatch.");
         return false;
     }
@@ -293,20 +278,18 @@ bool Crypto::testSalsa20()
     QByteArray salsa20iv = QByteArray::fromHex("0000000000000000");
     QByteArray salsa20Plain = QByteArray::fromHex("00000000000000000000000000000000");
     QByteArray salsa20Cipher = QByteArray::fromHex("B4C0AFA503BE7FC29A62058166D56F8F");
-    bool ok;
 
-    SymmetricCipher salsa20Stream(SymmetricCipher::Salsa20, SymmetricCipher::Stream, SymmetricCipher::Encrypt);
-    if (!salsa20Stream.init(salsa20Key, salsa20iv)) {
+    QByteArray data = salsa20Plain;
+    SymmetricCipher salsa20Stream;
+    if (!salsa20Stream.init(SymmetricCipher::Salsa20, SymmetricCipher::Encrypt, salsa20Key, salsa20iv)) {
         raiseError(salsa20Stream.errorString());
         return false;
     }
-
-    QByteArray salsaProcessed = salsa20Stream.process(salsa20Plain, &ok);
-    if (!ok) {
+    if (!salsa20Stream.process(data)) {
         raiseError(salsa20Stream.errorString());
         return false;
     }
-    if (salsaProcessed != salsa20Cipher) {
+    if (data != salsa20Cipher) {
         raiseError("Salsa20 stream cipher mismatch.");
         return false;
     }
@@ -322,20 +305,18 @@ bool Crypto::testChaCha20()
                                                    "0000000000000000000000000000000000000000000000000000000000000");
     QByteArray chacha20Cipher = QByteArray::fromHex("76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da"
                                                     "41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586");
-    bool ok;
 
-    SymmetricCipher chacha20Stream(SymmetricCipher::ChaCha20, SymmetricCipher::Stream, SymmetricCipher::Encrypt);
-    if (!chacha20Stream.init(chacha20Key, chacha20iv)) {
+    QByteArray data = chacha20Plain;
+    SymmetricCipher chacha20Stream;
+    if (!chacha20Stream.init(SymmetricCipher::ChaCha20, SymmetricCipher::Encrypt, chacha20Key, chacha20iv)) {
         raiseError(chacha20Stream.errorString());
         return false;
     }
-
-    QByteArray chacha20Processed = chacha20Stream.process(chacha20Plain, &ok);
-    if (!ok) {
+    if (!chacha20Stream.process(data)) {
         raiseError(chacha20Stream.errorString());
         return false;
     }
-    if (chacha20Processed != chacha20Cipher) {
+    if (data != chacha20Cipher) {
         raiseError("ChaCha20 stream cipher mismatch.");
         return false;
     }

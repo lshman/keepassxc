@@ -29,6 +29,15 @@ public:
     static QString errorString();
     static QString debugInfo();
 
+    // Argon2 KDF
+    // AES KDF
+    // Stream Encrypt/Decrypt
+    // Block Encrypt/Decrypt
+    // Random Value
+    // Random Range
+    // Random Array
+    // Sign Data
+
 private:
     Crypto();
     static bool checkAlgorithms();

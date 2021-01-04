@@ -508,7 +508,7 @@ bool OpenSSHKey::encrypted() const
 
 bool OpenSSHKey::openKey(const QString& passphrase)
 {
-    QScopedPointer<SymmetricCipher> cipher;
+    QScopedPointer<SymmetricCipher> cipher(new SymmetricCipher());
 
     if (!m_rawPrivateData.isEmpty()) {
         return true;
@@ -519,27 +519,21 @@ bool OpenSSHKey::openKey(const QString& passphrase)
         return false;
     }
 
-    if (m_cipherName.compare("aes-128-cbc", Qt::CaseInsensitive) == 0) {
-        cipher.reset(new SymmetricCipher(SymmetricCipher::Aes128, SymmetricCipher::Cbc, SymmetricCipher::Decrypt));
-    } else if (m_cipherName == "aes256-cbc" || m_cipherName.compare("aes-256-cbc", Qt::CaseInsensitive) == 0) {
-        cipher.reset(new SymmetricCipher(SymmetricCipher::Aes256, SymmetricCipher::Cbc, SymmetricCipher::Decrypt));
-    } else if (m_cipherName == "aes256-ctr" || m_cipherName.compare("aes-256-ctr", Qt::CaseInsensitive) == 0) {
-        cipher.reset(new SymmetricCipher(SymmetricCipher::Aes256, SymmetricCipher::Ctr, SymmetricCipher::Decrypt));
-    } else if (m_cipherName != "none") {
+    auto cipherMode = SymmetricCipher::stringToMode(m_cipherName);
+    if (cipherMode == SymmetricCipher::InvalidMode && m_cipherName != "none") {
         m_error = tr("Unknown cipher: %1").arg(m_cipherName);
         return false;
     }
 
+    QByteArray keyData, ivData;
     if (m_kdfName == "bcrypt") {
-        if (!cipher) {
-            m_error = tr("Trying to run KDF without cipher");
-            return false;
-        }
-
         if (passphrase.isEmpty()) {
             m_error = tr("Passphrase is required to decrypt this key");
             return false;
         }
+
+        int keySize = cipher->keySize(cipherMode);
+        int blockSize = 16;
 
         BinaryStream optionStream(&m_kdfOptions);
 
@@ -550,31 +544,23 @@ bool OpenSSHKey::openKey(const QString& passphrase)
         optionStream.read(rounds);
 
         QByteArray decryptKey;
-        decryptKey.fill(0, cipher->keySize() + cipher->blockSize());
-
+        decryptKey.fill(0, keySize + blockSize);
         QByteArray phraseData = passphrase.toUtf8();
         if (bcrypt_pbkdf(phraseData, salt, decryptKey, rounds) < 0) {
             m_error = tr("Key derivation failed, key file corrupted?");
             return false;
         }
 
-        QByteArray keyData, ivData;
-        keyData.setRawData(decryptKey.data(), cipher->keySize());
-        ivData.setRawData(decryptKey.data() + cipher->keySize(), cipher->blockSize());
-
-        cipher->init(keyData, ivData);
-
-        if (!cipher->init(keyData, ivData)) {
-            m_error = cipher->errorString();
-            return false;
-        }
+        keyData.setRawData(decryptKey.data(), keySize);
+        ivData.setRawData(decryptKey.data() + keySize, blockSize);
     } else if (m_kdfName == "md5") {
         if (m_cipherIV.length() < 8) {
             m_error = tr("Cipher IV is too short for MD5 kdf");
             return false;
         }
 
-        QByteArray keyData;
+        int keySize = cipher->keySize(cipherMode);
+
         QByteArray mdBuf;
         do {
             QCryptographicHash hash(QCryptographicHash::Md5);
@@ -583,29 +569,23 @@ bool OpenSSHKey::openKey(const QString& passphrase)
             hash.addData(m_cipherIV.data(), 8);
             mdBuf = hash.result();
             keyData.append(mdBuf);
-        } while (keyData.size() < cipher->keySize());
+        } while (keyData.size() < keySize);
 
-        if (keyData.size() > cipher->keySize()) {
+        if (keyData.size() > keySize) {
             // If our key size isn't a multiple of 16 (e.g. AES-192 or something),
             // then we will need to truncate it.
-            keyData.resize(cipher->keySize());
+            keyData.resize(keySize);
         }
 
-        if (!cipher->init(keyData, m_cipherIV)) {
-            m_error = cipher->errorString();
-            return false;
-        }
+        ivData = m_cipherIV;
     } else if (m_kdfName != "none") {
         m_error = tr("Unknown KDF: %1").arg(m_kdfName);
         return false;
     }
 
     QByteArray rawData = m_rawData;
-
-    if (cipher && cipher->isInitalized()) {
-        bool ok = false;
-        rawData = cipher->process(rawData, &ok);
-        if (!ok) {
+    if (cipher->init(cipherMode, SymmetricCipher::Decrypt, keyData, ivData)) {
+        if (!cipher->process(rawData)) {
             m_error = tr("Decryption failed, wrong passphrase?");
             return false;
         }

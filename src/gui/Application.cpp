@@ -45,7 +45,7 @@
 namespace
 {
     constexpr int WaitTimeoutMSec = 150;
-    const char BlockSizeProperty[] = "blockSize";
+    const char BlockSizeProperty[] = "bufferSize";
 } // namespace
 
 Application::Application(int& argc, char** argv)
